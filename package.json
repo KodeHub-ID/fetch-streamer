@@ -42,6 +42,14 @@
     "readable-stream"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KodeHub-ID/fetch-streamer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KodeHub-ID/fetch-streamer/issues"
+  },
+  "homepage": "https://github.com/KodeHub-ID/fetch-streamer#readme",
   "sideEffects": false,
   "engines": {
     "node": ">=18"
