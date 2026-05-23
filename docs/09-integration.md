@@ -2,15 +2,11 @@
 
 ## 9.1 Installing
 
-```json
-{
-  "dependencies": {
-    "@kodehub.id/fetch-streamer": "file:../fetch-streamer"
-  }
-}
+```bash
+npm install @kodehub.id/fetch-streamer
 ```
 
-Or copy `src/` directly into any project that compiles TypeScript from source.
+ESM-only; requires a runtime with global `fetch` + `ReadableStream` (Node.js 18+, modern browsers, Web Workers). Or copy `src/` directly into any project that compiles TypeScript from source.
 
 ## 9.2 Basic Usage (Bearer Token)
 

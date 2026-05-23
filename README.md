@@ -1,5 +1,10 @@
 # Fetch Streamer
 
+[![npm version](https://img.shields.io/npm/v/@kodehub.id/fetch-streamer.svg)](https://www.npmjs.com/package/@kodehub.id/fetch-streamer)
+[![license: MIT](https://img.shields.io/npm/l/@kodehub.id/fetch-streamer.svg)](./LICENSE)
+[![types: included](https://img.shields.io/badge/types-included-blue.svg)](#)
+[![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](#)
+
 Zero-dependency SSE client using `fetch` + `ReadableStream`. Spec-compliant drop-in for `EventSource` with custom header support, exponential backoff, and full TypeScript types.
 
 Works in browsers, Node.js 18+, Web Workers, and SSR environments.
@@ -10,13 +15,19 @@ Browsers prohibit setting custom headers on `EventSource` requests. If your API 
 
 ## Installation
 
-```json
-{
-  "dependencies": {
-    "@kodehub.id/fetch-streamer": "file:../fetch-streamer"
-  }
-}
+```bash
+npm install @kodehub.id/fetch-streamer
+# or
+pnpm add @kodehub.id/fetch-streamer
+# or
+yarn add @kodehub.id/fetch-streamer
 ```
+
+### Requirements
+
+- **ESM-only** — import with `import`, not `require`. Works directly in any ESM project, bundler, or `<script type="module">`.
+- Needs a runtime with global **`fetch`** and **`ReadableStream`**: **Node.js 18+**, modern browsers, or Web Workers. (On older Node, polyfill `fetch` before importing.)
+- TypeScript types ship with the package — no `@types/*` needed.
 
 ## Quick Start
 
@@ -25,7 +36,11 @@ import { FetchStreamer } from '@kodehub.id/fetch-streamer';
 
 const stream = new FetchStreamer('/api/events', {
   headers: { Authorization: `Bearer ${token}` },
+  onOpen(response) {
+    console.log('connected', response.status);
+  },
   onMessage(event) {
+    // event: { type: string; data: string; lastEventId: string }
     console.log(event.type, event.data);
   },
   onError(err) {
@@ -36,9 +51,11 @@ const stream = new FetchStreamer('/api/events', {
   },
 });
 
-// Teardown
+// Teardown — cancels the in-flight request and stops reconnecting
 stream.close();
 ```
+
+The connection starts immediately on construction — there is no separate `.connect()` call. `close()` is idempotent and safe to call any time.
 
 ## Key Features
 
@@ -144,6 +161,8 @@ const stream = new FetchStreamer(url, {
 });
 ```
 
+An exception thrown inside `onMessage` (e.g. a failed `JSON.parse`) is caught and forwarded to `onError` — it never tears down the connection or triggers an unwanted reconnect. Non-retriable HTTP statuses (401, 403, 404, 405, 410, 422) stop reconnection automatically.
+
 ## Backend Requirements
 
 Your server must respond with:
@@ -170,6 +189,10 @@ X-Accel-Buffering: no   ← required if behind nginx
 | [Integration Guide](./docs/09-integration.md) | Usage examples — Firebase, share tokens, React hook, nginx config |
 | [Comparison](./docs/10-comparison.md) | Feature matrix vs. native `EventSource` |
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md).
+
 ## License
 
-MIT
+MIT © KodeHub ID
