@@ -42,5 +42,8 @@
     "readable-stream"
   ],
   "license": "MIT",
-  "sideEffects": false
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  }
 }
