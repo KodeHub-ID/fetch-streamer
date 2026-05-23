@@ -1,0 +1,41 @@
+{
+  "name": "@kodehub.id/fetch-streamer",
+  "version": "0.1.0",
+  "description": "Zero-dependency SSE client using fetch + ReadableStream with custom header support",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.7",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.7"
+  },
+  "keywords": [
+    "sse",
+    "server-sent-events",
+    "eventsource",
+    "fetch",
+    "stream",
+    "readable-stream"
+  ],
+  "license": "MIT",
+  "sideEffects": false
+}
