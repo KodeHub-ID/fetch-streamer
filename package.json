@@ -1,6 +1,6 @@
 {
   "name": "@kodehub.id/fetch-streamer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-dependency SSE client using fetch + ReadableStream with custom header support",
   "type": "module",
   "main": "./dist/index.js",
