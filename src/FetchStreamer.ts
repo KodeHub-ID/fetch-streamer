@@ -168,28 +168,39 @@ export class FetchStreamer {
   }
 
   private async openConnection(): Promise<void> {
+    // Arm the connect signal first so it covers BOTH header resolution and fetch:
+    // close() or connectTimeoutMs can then interrupt a header provider that hangs,
+    // and cancel() in the catch releases the timer on every failure path.
     const { signal, cancel } = this.buildConnectSignal();
 
     let response: Response;
     try {
+      // Re-resolved every attempt (incl. reconnects), so a reconnect always carries
+      // freshly-provided headers. Aborts with the signal — never blocks indefinitely.
+      const headers = await this.resolveHeaders(signal);
+
       response = await fetch(this.url, {
         method: this.options.method ?? 'GET',
-        headers: this.buildHeaders(),
+        headers,
         body: this.options.body,
         credentials: this.options.withCredentials ? 'include' : 'same-origin',
         signal,
       });
     } catch (err) {
       cancel();
-      // Re-throw the connect-timeout error we set as the abort reason so the
-      // caller sees FetchStreamerConnectTimeoutError rather than a generic DOMException.
-      if (!this.closed && err instanceof DOMException && err.name === 'AbortError') {
+      // Surface the connect-timeout error we set as the abort reason (during either
+      // header resolution or fetch) rather than a generic AbortError. A close()-driven
+      // abort falls through to `throw err` and run() exits via its `this.closed` guard.
+      if (!this.closed) {
         const reason = signal.reason;
         if (reason instanceof FetchStreamerConnectTimeoutError) throw reason;
       }
       throw err;
     }
     cancel();
+
+    // close() may have landed during fetch; bail before processing the response.
+    if (this.closed) return;
 
     if (!response.ok) {
       throw new FetchStreamerHttpError(response.status, response.statusText);
@@ -216,11 +227,49 @@ export class FetchStreamer {
     await this.readStream(response.body.getReader());
   }
 
-  private buildHeaders(): Record<string, string> {
-    // Required SSE headers are placed AFTER options.headers so the caller
+  /**
+   * Resolves the request headers for one attempt. A static object resolves
+   * immediately; a header provider is raced against `signal` so close() or a
+   * connect-timeout interrupts a provider that never settles — the attempt can
+   * never block indefinitely on credential acquisition, and a provider that
+   * eventually settles after an abort is ignored (no stray fetch, no double-settle).
+   */
+  private resolveHeaders(signal: AbortSignal): Promise<Record<string, string>> {
+    const source = this.options.headers;
+    if (typeof source !== 'function') {
+      return Promise.resolve(this.composeHeaders(source));
+    }
+
+    return new Promise<Record<string, string>>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+        return;
+      }
+      const onAbort = () =>
+        reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      // Call the provider inside the chain so a synchronous throw becomes a rejection.
+      Promise.resolve()
+        .then(() => source())
+        .then(
+          (provided) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(this.composeHeaders(provided));
+          },
+          (err) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(err);
+          },
+        );
+    });
+  }
+
+  private composeHeaders(provided: Record<string, string> | undefined): Record<string, string> {
+    // Required SSE headers are placed AFTER the caller's headers so they
     // cannot accidentally override Accept or Cache-Control.
     const headers: Record<string, string> = {
-      ...this.options.headers,
+      ...provided,
       Accept: 'text/event-stream',
       'Cache-Control': 'no-cache',
     };
