@@ -6,6 +6,7 @@ import {
   FetchStreamerConnectTimeoutError,
   FetchStreamerHeartbeatError,
 } from '../errors';
+import type { HeaderProvider } from '../types';
 import { MockSSEStream, makeSSEResponse, makeErrorResponse } from './helpers/MockSSEStream';
 
 // Macrotask boundary — drains the ReadableStream read loop under REAL timers.
@@ -92,6 +93,68 @@ describe('FetchStreamer — connection & messages', () => {
     s.close();
   });
 
+  it('resolves a header provider and re-invokes it on every (re)connect with fresh values', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // zero jitter
+
+    const fetchFn = stubFetch();
+    fetchFn
+      .mockResolvedValueOnce(makeErrorResponse(503, 'Unavailable')) // first attempt fails → retriable
+      .mockResolvedValueOnce(makeSSEResponse(new MockSSEStream()));
+
+    let token = 'first';
+    const headers = vi.fn(() => Promise.resolve({ Authorization: `Bearer ${token}` }));
+    const s = new FetchStreamer('/events', { headers, initialRetryMs: 10, minRetryMs: 1 });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(headers).toHaveBeenCalledTimes(1);
+    let init = fetchFn.mock.calls[0][1] as RequestInit & { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBe('Bearer first');
+
+    token = 'second'; // simulate a refreshed token before the reconnect
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(headers).toHaveBeenCalledTimes(2); // provider re-invoked per attempt
+    init = fetchFn.mock.calls[1][1] as RequestInit & { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBe('Bearer second'); // reconnect carries the fresh token
+
+    s.close();
+  });
+
+  it('treats a header-provider rejection as a retriable connection failure', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const fetchFn = stubFetch();
+    fetchFn.mockResolvedValue(makeSSEResponse(new MockSSEStream()));
+
+    const boom = new Error('token fetch failed');
+    const headers = vi
+      .fn<HeaderProvider>()
+      .mockRejectedValueOnce(boom) // first attempt: provider throws
+      .mockResolvedValue({ Authorization: 'Bearer ok' });
+
+    const onError = vi.fn();
+    const s = new FetchStreamer('/events', {
+      headers,
+      initialRetryMs: 10,
+      minRetryMs: 1,
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchFn).not.toHaveBeenCalled(); // provider failed before fetch
+    expect(onError).toHaveBeenCalledWith(boom);
+
+    await vi.advanceTimersByTimeAsync(10); // backoff → retry resolves the token
+    expect(headers).toHaveBeenCalledTimes(2);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect((fetchFn.mock.calls[0][1] as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe('Bearer ok');
+
+    s.close();
+  });
+
   it('passes method, body, and credentials for POST', async () => {
     const fetchFn = stubFetch();
     fetchFn.mockResolvedValue(makeSSEResponse(new MockSSEStream()));
@@ -169,6 +232,29 @@ describe('FetchStreamer — lifecycle & close', () => {
     expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
     // The now-detached listener must not fire close() machinery a second time.
     expect(() => ac.abort()).not.toThrow();
+  });
+
+  it('does not fire fetch when close() lands while an async header provider is resolving', async () => {
+    const fetchFn = stubFetch();
+    fetchFn.mockResolvedValue(makeSSEResponse(new MockSSEStream()));
+
+    let releaseHeaders!: (h: Record<string, string>) => void;
+    const headers = vi.fn<HeaderProvider>(
+      () => new Promise((resolve) => { releaseHeaders = resolve; }),
+    );
+    const onClose = vi.fn();
+    const s = new FetchStreamer('/events', { headers, onClose });
+
+    await tick();
+    expect(headers).toHaveBeenCalledTimes(1); // provider invoked, still pending
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    s.close();                                       // close while the provider is in flight
+    releaseHeaders({ Authorization: 'Bearer late' }); // provider resolves AFTER close
+    await tick();
+
+    expect(fetchFn).not.toHaveBeenCalled();          // the closed-guard suppressed the stray request
+    expect(onClose).toHaveBeenCalledTimes(1);        // exactly one onClose, no double-fire
   });
 
   it('a pre-aborted signal never starts the connection', async () => {
@@ -382,6 +468,46 @@ describe('FetchStreamer — connection timeout', () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0]).toBeInstanceOf(FetchStreamerConnectTimeoutError);
+  });
+
+  it('interrupts a hanging header provider via connectTimeoutMs (does not block forever)', async () => {
+    vi.useFakeTimers();
+    const fetchFn = stubFetch();
+    fetchFn.mockResolvedValue(makeSSEResponse(new MockSSEStream()));
+
+    // A provider that never settles on its own — only the connect signal can free it.
+    const headers = vi.fn<HeaderProvider>(() => new Promise<Record<string, string>>(() => {}));
+    const onError = vi.fn();
+    new FetchStreamer('/events', {
+      headers,
+      connectTimeoutMs: 50,
+      reconnectOnError: false,
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(headers).toHaveBeenCalledTimes(1);
+    expect(fetchFn).not.toHaveBeenCalled(); // never reached fetch — header phase timed out
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(FetchStreamerConnectTimeoutError);
+  });
+
+  it('close() interrupts a hanging header provider (clean teardown, single onClose)', async () => {
+    const fetchFn = stubFetch();
+    fetchFn.mockResolvedValue(makeSSEResponse(new MockSSEStream()));
+
+    const headers = vi.fn<HeaderProvider>(() => new Promise<Record<string, string>>(() => {}));
+    const onClose = vi.fn();
+    const s = new FetchStreamer('/events', { headers, onClose });
+
+    await tick();
+    expect(headers).toHaveBeenCalledTimes(1);
+
+    s.close(); // aborts the in-flight (never-settling) provider
+    await tick();
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('connection timeout is retriable', async () => {
