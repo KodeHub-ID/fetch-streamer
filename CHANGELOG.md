@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-13
+
+### Added
+
+- `headers` now accepts a `HeaderProvider` function (sync or async) in addition to a
+  static object. The provider is re-invoked on **every** connection attempt, so a
+  reconnect can attach a freshly-minted credential (e.g. a refreshed auth token)
+  instead of reusing the one captured at construction. A provider throw/rejection is
+  treated as a retriable connection failure.
+- Exported the `HeaderProvider` type.
+
+### Changed
+
+- Header resolution runs under the connection's abort signal. `close()` and
+  `connectTimeoutMs` now interrupt a header provider that hangs, so a connection
+  attempt never blocks indefinitely on credential acquisition. A provider that
+  settles after an abort is ignored — no stray request is fired and `onClose` stays
+  single-fire.
+
 ## [0.1.0] - 2026-05-24
 
 Initial release.
