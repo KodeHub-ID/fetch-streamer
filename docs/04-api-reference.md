@@ -19,7 +19,7 @@ const stream = new FetchStreamer('/api/events', {
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `headers` | `Record<string, string>` | `{}` | Extra request headers. Merged first — required headers (`Accept`, `Cache-Control`) are set after and cannot be overridden. |
+| `headers` | `Record<string, string>` \| `HeaderProvider` | `{}` | Extra request headers, or a provider function (sync/async) re-invoked per attempt — return a freshly-minted token here so reconnects never reuse an expired one. Merged first — required headers (`Accept`, `Cache-Control`) are set after and cannot be overridden. Provider resolution is raced against the connect signal, so `close()`/`connectTimeoutMs` interrupt a hanging provider. |
 | `method` | `'GET' \| 'POST'` | `'GET'` | HTTP method. |
 | `body` | `string` | — | Request body. Only used with `POST`. |
 | `withCredentials` | `boolean` | `false` | Send cookies on cross-origin requests. |
@@ -46,6 +46,20 @@ interface SSEEvent {
   lastEventId: string; // accumulated last event ID
 }
 ```
+
+## `HeaderProvider`
+
+```ts
+type HeaderProvider = () =>
+  | Record<string, string>
+  | Promise<Record<string, string>>;
+```
+
+Supplied as the `headers` option to resolve request headers per connection attempt
+(including reconnects). Return a freshly-minted credential so a reconnect never reuses
+an expired token. A throw/rejection is a retriable connection failure. Resolution is
+raced against the connect signal, so `close()` and `connectTimeoutMs` interrupt a
+provider that hangs.
 
 ## `stream.close()`
 
