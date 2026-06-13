@@ -59,7 +59,7 @@ The connection starts immediately on construction — there is no separate `.con
 
 ## Key Features
 
-- **Custom headers** — Bearer tokens, API keys, share tokens on every request including reconnects
+- **Custom headers** — Bearer tokens, API keys, share tokens on every request including reconnects. Pass a [header provider](#header-provider-fresh-tokens-on-reconnect) to attach a freshly-minted token on every (re)connect.
 - **Exponential backoff with jitter** — configurable delay, ceiling, and ±25% randomisation to prevent thundering herd
 - **Typed error classes** — `FetchStreamerHttpError`, `FetchStreamerContentTypeError`, `FetchStreamerBufferError`, `FetchStreamerConnectTimeoutError`, `FetchStreamerHeartbeatError`
 - **Connection timeout** — abort `fetch()` if the server is slow to respond (`connectTimeoutMs`)
@@ -74,7 +74,7 @@ The connection starts immediately on construction — there is no separate `.con
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `headers` | `Record<string, string>` | `{}` | Extra request headers |
+| `headers` | `Record<string, string>` \| `() => Record<string, string> \| Promise<...>` | `{}` | Extra request headers, or a [provider](#header-provider-fresh-tokens-on-reconnect) re-invoked per attempt |
 | `method` | `'GET' \| 'POST'` | `'GET'` | HTTP method |
 | `body` | `string` | — | Request body (POST only) |
 | `withCredentials` | `boolean` | `false` | Send cookies on cross-origin requests |
@@ -133,6 +133,43 @@ useSSE(
   '/api/stream/devices',
   { headers: { Authorization: `Bearer ${token}` }, onMessage(e) { ... } },
   [token],
+);
+```
+
+## Header Provider (fresh tokens on reconnect)
+
+A static `headers` object is captured once, so a long-lived stream that reconnects
+(after a network drop, heartbeat timeout, or server restart) reuses the **original**
+token. If that token has since expired, every reconnect fails until the stream is
+torn down and rebuilt with a new one.
+
+Pass a **function** instead and it is re-invoked on every connection attempt —
+including the library's own internal reconnects — so each attempt carries a
+freshly-resolved credential:
+
+```ts
+const stream = new FetchStreamer('/api/events', {
+  // Re-evaluated per attempt. Return an expired-token refresh here and reconnects
+  // transparently pick up the new token — no reopen, no stale-credential loop.
+  headers: async () => ({ Authorization: `Bearer ${await getFreshToken()}` }),
+  onMessage(e) { /* ... */ },
+});
+```
+
+The provider may be sync or async. A throw or rejection is treated as a (retriable)
+connection failure and reported to `onError`. Header resolution runs under the same
+abort signal as the request, so `close()` and `connectTimeoutMs` interrupt a provider
+that hangs — the attempt never blocks indefinitely on credential acquisition, and a
+provider that settles after an abort is ignored (no stray request).
+
+With a provider, you no longer reopen on token change, so the React hook above needs
+no `token` dependency:
+
+```ts
+useSSE(
+  '/api/stream/devices',
+  { headers: async () => ({ Authorization: `Bearer ${await getFreshToken()}` }), onMessage(e) { ... } },
+  [], // token is resolved per attempt — not a reopen trigger
 );
 ```
 

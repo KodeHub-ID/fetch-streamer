@@ -104,6 +104,8 @@ When the timeout fires, `timeoutController.signal.reason` is `FetchStreamerConne
 
 `FetchStreamerConnectTimeoutError` is retriable — it follows the same path as a network failure, with exponential backoff and jitter.
 
+The connect signal is built **before** header resolution, so it bounds the whole attempt — not just `fetch()`. `resolveHeaders()` races a header provider against the same signal, so a provider that hangs (e.g. a stuck token refresh) is interrupted by the connect timeout or by `close()` rather than blocking the attempt indefinitely. A provider that settles after the abort is ignored, so no stray request is fired.
+
 ## 6.10 Heartbeat Timeout: Post-`finally` Throw Pattern
 
 The heartbeat timer is started before the `reader.read()` loop and reset on every received chunk. When it fires, it sets a `heartbeatExpired` flag and calls `void reader.cancel()` — this causes `reader.read()` to resolve with `{ done: true }`, ending the loop normally. The `finally` block runs as usual (`clearTimeout` + `reader.cancel()` idempotently).
