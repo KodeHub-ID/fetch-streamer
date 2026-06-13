@@ -7,9 +7,28 @@ export interface SSEEvent {
   lastEventId: string;
 }
 
+/**
+ * Resolves the request headers for a connection attempt. Re-invoked on every
+ * (re)connect, so returning a freshly-minted credential here guarantees a
+ * reconnect never reuses an expired token. May be sync or async; a throw or
+ * rejection is treated as a (retriable) connection failure.
+ *
+ * Resolution runs under the connection's abort signal, so `close()` and
+ * `connectTimeoutMs` interrupt a provider that hangs — the attempt never blocks
+ * indefinitely on credential acquisition, and a provider that settles after an
+ * abort is ignored (no stray request is fired).
+ */
+export type HeaderProvider = () =>
+  | Record<string, string>
+  | Promise<Record<string, string>>;
+
 export interface FetchStreamerOptions {
-  /** Additional HTTP request headers (e.g. Authorization, X-Share-Token). */
-  headers?: Record<string, string>;
+  /**
+   * Additional HTTP request headers (e.g. Authorization, X-Share-Token).
+   * Either a static object, or a {@link HeaderProvider} re-invoked per attempt —
+   * use the provider form to attach a fresh auth token on every reconnect.
+   */
+  headers?: Record<string, string> | HeaderProvider;
   /** HTTP method. Defaults to "GET". */
   method?: 'GET' | 'POST';
   /** Request body string. Only meaningful when method is "POST". */

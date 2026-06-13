@@ -1,5 +1,5 @@
 export { FetchStreamer } from './FetchStreamer';
-export type { FetchStreamerOptions, SSEEvent } from './types';
+export type { FetchStreamerOptions, HeaderProvider, SSEEvent } from './types';
 export {
   FetchStreamerHttpError,
   FetchStreamerContentTypeError,
