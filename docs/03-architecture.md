@@ -62,6 +62,7 @@ new FetchStreamer(url, options)
         │
         └─ on error:
               ├─ emitError(err)  ← onError?.(err) wrapped in try/catch
+              ├─ guard: if (this.closed) return  ← close() during onError
               ├─ this.shouldGiveUp(err)  ← reconnectOnError / non-retriable / maxRetries
               ├─ await this.sleep(max(minRetryMs, retryMs + jitter))  ← interruptible via AbortSignal
               └─ retryMs = min(retryMs * 1.5, cfg.maxRetryMs)

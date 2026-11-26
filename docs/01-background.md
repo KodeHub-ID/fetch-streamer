@@ -7,11 +7,12 @@ This makes it unusable for any project that authenticates with:
 - API keys in request headers
 - Share tokens (`X-Share-Token`, etc.)
 
-Fetch Streamer re-implements `EventSource` behavior using `fetch` + `ReadableStream`. The `fetch` API has no header restrictions. We read the response body as a byte stream, decode it incrementally, and parse the SSE format manually.
+Fetch Streamer provides the same kind of stream using `fetch` + `ReadableStream`. The `fetch` API has no header restrictions. We read the response body as a byte stream, decode it incrementally, and parse the SSE format manually. Parsing follows the specification; reconnection deliberately differs — see [Comparison](./10-comparison.md).
 
 Compared to native `EventSource`:
 - Custom headers on every request, including reconnects
-- Exponential backoff with jitter (vs. native's flat 3 s)
+- Exponential backoff with jitter
+- No automatic reconnect once the server completes the response
 - Typed error classes (vs. generic `Event`)
 - `maxRetries` option and security guards against malicious server hints
 

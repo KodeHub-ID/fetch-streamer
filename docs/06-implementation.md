@@ -18,7 +18,7 @@ private sleep(ms: number): Promise<void> {
     id = setTimeout(() => {
       signal.removeEventListener('abort', onAbort); // detach on normal completion
       resolve();
-    }, Math.max(0, ms));
+    }, Math.min(Math.max(0, ms), MAX_TIMER_MS)); // larger delays would fire at once
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }
@@ -28,7 +28,7 @@ private sleep(ms: number): Promise<void> {
 
 If `reader.read()` throws mid-stream (network drop, abort), the `ReadableStream` reader must still be explicitly released — otherwise the browser keeps the stream locked until GC runs.
 
-`reader.cancel()` is called in a `finally` block, covering all exit paths: clean server close, thrown error, and `close()` called mid-read.
+The reader is cancelled (through `cancelReader()`, see [§6.12](#612-direct-abort-listener-in-readstream)) in a `finally` block, covering all exit paths: clean server close, thrown error, and `close()` called mid-read.
 
 ## 6.3 Non-Retriable Status Codes
 
@@ -65,26 +65,26 @@ if (this.closed) return;
 
 ## 6.6 Option Normalization at Construction (`ResolvedConfig`)
 
-All numeric options are resolved to their defaults once in the constructor and stored in an internal `cfg` object. This eliminates repeated `?? DEFAULT` expressions across methods:
+All numeric options are resolved once in the constructor and stored in an internal `cfg` object, so methods never repeat default or range handling. `delayOption()` and `timeoutOption()` treat `null` and `''` as unset, convert numeric strings (untyped callers pass both), and keep values within what a timer accepts:
 
 ```ts
 this.cfg = {
   reconnectOnError:   options.reconnectOnError   ?? true,
   maxRetries:         options.maxRetries,
-  initialRetryMs:     options.initialRetryMs     ?? DEFAULTS.initialRetryMs,
-  maxRetryMs:         options.maxRetryMs          ?? DEFAULTS.maxRetryMs,
-  minRetryMs:         options.minRetryMs          ?? DEFAULTS.minRetryMs,
-  maxBufferLength:    options.maxBufferLength     ?? DEFAULTS.maxBufferLength,
-  connectTimeoutMs:   options.connectTimeoutMs,
-  heartbeatTimeoutMs: options.heartbeatTimeoutMs,
+  initialRetryMs:     delayOption(options.initialRetryMs, DEFAULTS.initialRetryMs),
+  maxRetryMs:         delayOption(options.maxRetryMs, DEFAULTS.maxRetryMs),
+  minRetryMs:         delayOption(options.minRetryMs, DEFAULTS.minRetryMs),
+  maxBufferLength:    options.maxBufferLength ?? DEFAULTS.maxBufferLength,
+  connectTimeoutMs:   timeoutOption(options.connectTimeoutMs),
+  heartbeatTimeoutMs: timeoutOption(options.heartbeatTimeoutMs),
 };
 ```
 
 HTTP request options (`headers`, `method`, `body`, `withCredentials`) and callbacks are read from `this.options` directly on each reconnect — keeping them live without requiring a new instance.
 
-## 6.7 Single AbortController for Lifetime
+## 6.7 Lifetime and Per-Attempt AbortControllers
 
-A single `AbortController` is created at construction and shared across all reconnect cycles. It is only aborted via `close()`. Since `close()` sets `this.closed = true` before calling `abort()`, the `this.closed` flag alone is sufficient in the error handler — a separate `signal.aborted` check would always be redundant.
+One `AbortController` is created at construction and shared across all reconnect cycles; each connection attempt also gets its own, linked to it (§6.9). The lifetime controller is only aborted via `close()`. Since `close()` sets `this.closed = true` before calling `abort()`, the `this.closed` flag alone is sufficient in the error handler — a separate `signal.aborted` check would always be redundant.
 
 ## 6.8 `Last-Event-ID` Header Casing
 
@@ -109,7 +109,7 @@ The connect signal is built **before** header resolution, so it bounds the whole
 
 ## 6.10 Heartbeat Timeout: Post-`finally` Throw Pattern
 
-The heartbeat timer is started before the `reader.read()` loop and reset on every received chunk. When it fires, it sets a `heartbeatExpired` flag and calls `void reader.cancel()` — this causes `reader.read()` to resolve with `{ done: true }`, ending the loop normally. The `finally` block runs as usual (`clearTimeout` + `reader.cancel()` idempotently).
+The heartbeat timer is started before the `reader.read()` loop and reset on every received chunk. When it fires, it sets a `heartbeatExpired` flag and calls `void cancelReader()` — this causes `reader.read()` to resolve with `{ done: true }`, ending the loop normally. The `finally` block runs as usual (`clearTimeout` + `cancelReader()`, idempotently).
 
 `FetchStreamerHeartbeatError` is thrown **after** the `finally` block, not inside the loop. This guarantees the reader is always released before the error propagates to the reconnect loop, regardless of the timeout path.
 
@@ -124,7 +124,7 @@ try {
 } finally {
   this.abortController.signal.removeEventListener('abort', onAbort);
   clearTimeout(heartbeatTimer);
-  await reader.cancel();
+  await cancelReader();
 }
 
 if (heartbeatExpired && heartbeatTimeoutMs !== undefined) {
@@ -139,7 +139,7 @@ if (heartbeatExpired && heartbeatTimeoutMs !== undefined) {
 To handle this, the constructor checks `signal.aborted` explicitly after registering the listener:
 
 ```ts
-options.signal?.addEventListener('abort', () => this.close(), { once: true });
+options.signal?.addEventListener('abort', this.onExternalAbort, { once: true });
 if (options.signal?.aborted) {
   this.close();
 } else {
@@ -189,6 +189,8 @@ try {
 ```
 
 `lastEventId` and `retryMs` are updated *before* the call, so they remain correct even if the handler throws.
+
+Callbacks are typed as returning `void`, which still admits an `async` function, so a returned promise is watched too: a rejecting `onMessage` goes to `onError` (not after the caller's own `close()`), and rejections from `onError` or `onClose` are swallowed.
 
 `onError` and `onClose` are likewise hardened against their own exceptions: `emitError()` wraps `onError` in a `try/catch`, and `close()` wraps `onClose`. A throwing notification handler cannot break reconnection (an escaped throw from `run()` would become an unhandled rejection) or leave the instance half-closed. There is no further channel to report a bug in the error/close handler itself, so those exceptions are swallowed.
 
