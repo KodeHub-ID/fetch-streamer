@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createSSEParser, type ParsedEvent } from '../parser';
-import { FetchStreamerBufferError } from '../errors';
+import { createSSEParser, type ParsedEvent } from '../parser.js';
+import { FetchStreamerBufferError } from '../errors.js';
 
 // Convenience: feed chunks through the parser and collect all dispatched events.
 function parse(chunks: string[], maxBufferLength = 1_048_576): ParsedEvent[] {
@@ -82,8 +82,8 @@ describe('SSE parser', () => {
       expect(events[0].data).toBe('\nhello');
     });
 
-    it('single empty data: field does not dispatch (data buffer is empty string)', () => {
-      expect(parseOne('data:\n\n')).toHaveLength(0);
+    it('single empty data: field dispatches with empty data', () => {
+      expect(parseOne('data:\n\n')).toMatchObject([{ type: 'message', data: '' }]);
     });
 
     it('strips exactly one leading space from value', () => {

@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - Unreleased
+
+### Fixed
+
+- The published package can now be imported by plain Node ESM: relative imports in the
+  built output carry `.js` extensions, and `exports` lists `types` first.
+- An event whose `data` field is empty (`data:`) is now dispatched with `data: ''`, as
+  the WHATWG spec and native `EventSource` do. Consumers will start receiving events
+  such as empty-payload heartbeats and sentinels that were previously dropped.
+- `maxBufferLength` now bounds the pending event, so many `data:` lines without a blank
+  line can no longer grow without limit, and many small events in a single chunk no
+  longer trigger a false `FetchStreamerBufferError`.
+- No events are delivered after `close()`, including the remainder of the chunk being
+  processed when `onMessage` calls it.
+
 ## [0.2.0] - 2026-06-13
 
 ### Added

@@ -45,11 +45,11 @@ The consumer checks `if (parsed.id !== undefined)` rather than a truthy check so
 
 ## 7.5 `data:` Empty String Dispatch
 
-A `data:` field with an empty value still sets the `dataSeen` flag. A single such field results in a data buffer of `""`, and since the buffer is empty, no event is dispatched. But `data:` followed by `data: hello` correctly produces `"\nhello"` because `dataSeen` is already `true` by the second field.
+A `data:` field with an empty value still counts. The spec appends the value **plus a line feed** to the data buffer for every `data` line, checks for an empty buffer, and only then strips the trailing line feed. A single `data:` line therefore dispatches an event with `data: ""`, exactly as native `EventSource` does. Only a block with no `data` field at all is dropped. Likewise `data:` followed by `data: hello` produces `"\nhello"`.
 
 ## 7.6 Buffer Bound Discards the In-Flight Event
 
-The text buffer holds only the *unterminated trailing line*; completed lines are consumed as they are scanned. If that buffer grows past `maxBufferLength` (a server streaming a line with no terminator), the buffer **and** the partially-accumulated event state are discarded and `FetchStreamerBufferError` is thrown. Resetting the event state prevents a half-read event from leaking into the next connection's first dispatch. See [Security §5.2](./05-security.md#52-sse-buffer-is-bounded).
+`maxBufferLength` bounds the **pending event**: the accumulated `data` plus the line currently being read, whether or not that line has been terminated yet. This covers both a server streaming a line with no terminator and one streaming `data:` lines with no blank line. Completed events do not count, so many small events arriving in one network chunk are fine. When the limit is exceeded, the buffer **and** the partially-accumulated event state are discarded and `FetchStreamerBufferError` is thrown. Resetting the event state prevents a half-read event from leaking into the next connection's first dispatch. See [Security §5.2](./05-security.md#52-sse-buffer-is-bounded).
 
 ---
 

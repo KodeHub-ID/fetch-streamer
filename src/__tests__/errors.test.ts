@@ -5,7 +5,7 @@ import {
   FetchStreamerBufferError,
   FetchStreamerConnectTimeoutError,
   FetchStreamerHeartbeatError,
-} from '../errors';
+} from '../errors.js';
 
 describe('FetchStreamerHttpError', () => {
   it('formats message with status and statusText', () => {

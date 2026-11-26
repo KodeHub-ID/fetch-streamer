@@ -83,7 +83,7 @@ The connection starts immediately on construction — there is no separate `.con
 | `initialRetryMs` | `number` | `3000` | Initial backoff delay in ms |
 | `maxRetryMs` | `number` | `30000` | Backoff ceiling in ms |
 | `minRetryMs` | `number` | `500` | Lower bound for reconnect delay (floors server-sent `retry:` and jittered backoff) |
-| `maxBufferLength` | `number` | `1048576` | SSE text buffer size limit in UTF-16 code units |
+| `maxBufferLength` | `number` | `1048576` | Size limit for one pending event, in UTF-16 code units |
 | `connectTimeoutMs` | `number` | — | Max ms to wait for `fetch()` to resolve |
 | `heartbeatTimeoutMs` | `number` | — | Max ms of silence between chunks |
 | `onOpen` | `(res: Response) => void \| Promise<void>` | — | Called after successful connection |

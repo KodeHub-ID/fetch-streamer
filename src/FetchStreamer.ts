@@ -1,11 +1,11 @@
-import { createSSEParser, type ParsedEvent } from './parser';
+import { createSSEParser, type ParsedEvent } from './parser.js';
 import {
   FetchStreamerHttpError,
   FetchStreamerContentTypeError,
   FetchStreamerConnectTimeoutError,
   FetchStreamerHeartbeatError,
-} from './errors';
-import type { FetchStreamerOptions } from './types';
+} from './errors.js';
+import type { FetchStreamerOptions } from './types.js';
 
 // Keys match FetchStreamerOptions names intentionally — diff is immediate.
 const DEFAULTS = {
@@ -289,6 +289,10 @@ export class FetchStreamer {
         this.cfg.maxRetryMs,
       );
     }
+
+    // One chunk can hold several events; none may be delivered after close(),
+    // including when an earlier onMessage in the same chunk is what called it.
+    if (this.closed) return;
 
     // lastEventId / retryMs are updated above and persist regardless of whether
     // the handler throws. A buggy onMessage is reported via onError but must not
