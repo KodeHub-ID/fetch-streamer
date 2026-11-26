@@ -91,16 +91,16 @@ The spec uses `Last-Event-ID` (with hyphens, mixed case). HTTP/2 lowercases all 
 
 ## 6.9 Connection Timeout Without `AbortSignal.any()`
 
-When `connectTimeoutMs` is set, `buildConnectSignal()` creates a local `AbortController` (`timeoutController`) and passes its signal directly to `fetch()`. Two abort sources feed into it:
+Each attempt gets its own `AbortController` from `buildAttempt()`, and its signal is passed to `fetch()`. Two abort sources feed into it:
 
-1. **Timeout**: a `setTimeout` calls `timeoutController.abort(new FetchStreamerConnectTimeoutError(timeoutMs))` after the configured delay.
-2. **Close propagation**: an `abort` listener on `this.abortController.signal` calls `timeoutController.abort(signal.reason)` when `close()` fires — forwarding the close into the same controller, so `fetch()` only needs to watch one signal.
+1. **Timeout**: a `setTimeout` calls `abort(new FetchStreamerConnectTimeoutError(timeoutMs))`. The timer is cleared by `connected()` once response headers arrive.
+2. **Close propagation**: an `abort` listener on `this.abortController.signal` forwards `close()`. It stays attached for the **whole response**, body included.
+
+`dispose()` runs in a `finally` when the attempt ends for any reason (error status, wrong content type, a throwing `onOpen`, a read error, a clean end). It removes the listener and aborts the request, so a retry never leaves the previous connection open.
 
 `AbortSignal.any()` would be the natural fit, but it requires Node.js 20+ and Chrome 116+. The listener-based propagation achieves identical semantics with universal compatibility (Node.js 18+, all modern browsers).
 
-`cancel()` clears both the timer id and the `abort` listener, preventing leaks when `fetch()` resolves before either source fires.
-
-When the timeout fires, `timeoutController.signal.reason` is `FetchStreamerConnectTimeoutError`. The catch block in `openConnection()` inspects this to rethrow the typed error rather than the generic `DOMException` that `fetch()` surfaces on abort.
+When the timeout fires, the attempt signal's `reason` is `FetchStreamerConnectTimeoutError`. The catch block in `runAttempt()` inspects this to rethrow the typed error rather than the generic `DOMException` that `fetch()` surfaces on abort.
 
 `FetchStreamerConnectTimeoutError` is retriable — it follows the same path as a network failure, with exponential backoff and jitter.
 
@@ -150,16 +150,7 @@ This covers the common React pattern where a signal from a parent `AbortControll
 
 ## 6.12 Direct Abort Listener in `readStream()`
 
-`buildConnectSignal()` creates an internal `AbortController` (`timeoutController`) when `connectTimeoutMs` is set, and passes its signal to `fetch()`. After `fetch()` resolves, `cancel()` clears the timer and removes the listener that propagated `close()` into `timeoutController`. This is intentional for the connection phase, but leaves `timeoutController.signal` disconnected from `this.abortController` during body reading.
-
-To ensure `close()` immediately cancels the reader regardless of which fetch signal was used, `readStream()` registers its own `{ once: true }` listener directly on `this.abortController.signal`:
-
-```ts
-const onAbort = () => void reader.cancel();
-this.abortController.signal.addEventListener('abort', onAbort, { once: true });
-```
-
-The `finally` block removes this listener unconditionally — it will already be auto-removed by `{ once: true }` if `close()` was called, but an explicit `removeEventListener` in the normal-exit path prevents the listener from lingering until the signal is eventually garbage-collected.
+Because `close()` aborts the request, the body stream is usually already errored by the time the reader is cancelled, and `reader.cancel()` then rejects. Every cancel therefore goes through `cancelReader()`, which swallows that rejection; left unhandled it would terminate a Node.js process. The separate `abort` listener that cancels the reader remains for `fetch` implementations that do not error the body on abort.
 
 ## 6.13 `maxBufferLength`: Measuring in UTF-16 Code Units
 

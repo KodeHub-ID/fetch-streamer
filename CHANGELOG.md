@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer trigger a false `FetchStreamerBufferError`.
 - No events are delivered after `close()`, including the remainder of the chunk being
   processed when `onMessage` calls it.
+- `close()` (or aborting the external signal) while a stream was open no longer raises an
+  unhandled `AbortError`, which terminated Node.js processes that had no
+  `connectTimeoutMs` set.
+- Connections no longer pile up: the request is aborted whenever a connection attempt
+  ends (error status, wrong content type, throwing `onOpen`), and `close()` now reaches
+  the request for its whole lifetime when `connectTimeoutMs` is set.
+- `Last-Event-ID` is sent as UTF-8 bytes, as native `EventSource` does. An id outside
+  Latin-1 previously made every reconnect fail; an id containing control characters is
+  now omitted.
+- A large event split across many network chunks is parsed in linear time.
 
 ## [0.2.0] - 2026-06-13
 

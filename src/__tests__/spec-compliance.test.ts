@@ -83,3 +83,26 @@ describe('no events after close()', () => {
     expect(got).toEqual(['1']);
   });
 });
+
+describe('large events split into many chunks', () => {
+  it('parses a 1 MB line arriving in 512-byte chunks in linear time', () => {
+    const { events, push } = collect(2_000_000);
+    const wire = `data: ${'x'.repeat(1_000_000)}\n\n`;
+    const started = performance.now();
+    for (let i = 0; i < wire.length; i += 512) push(wire.slice(i, i + 512));
+    expect(events[0].data).toHaveLength(1_000_000);
+    // Linear parsing takes a few ms; the quadratic version took seconds.
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it('keeps CR/LF handling across every split point', () => {
+    const wire = 'event: a\r\ndata: 1\rdata: 2\n\r\ndata: 3\r\r';
+    for (let cut = 0; cut <= wire.length; cut++) {
+      for (let cut2 = cut; cut2 <= wire.length; cut2++) {
+        const { events, push } = collect();
+        [wire.slice(0, cut), wire.slice(cut, cut2), wire.slice(cut2)].forEach(push);
+        expect(events.map((e) => `${e.type}:${e.data}`)).toEqual(['a:1\n2', 'message:3']);
+      }
+    }
+  });
+});
