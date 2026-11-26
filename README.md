@@ -200,7 +200,7 @@ const stream = new FetchStreamer(url, {
 });
 ```
 
-An exception thrown inside `onMessage` (e.g. a failed `JSON.parse`) is caught and forwarded to `onError` — it never tears down the connection or triggers an unwanted reconnect. Non-retriable HTTP statuses (401, 403, 404, 405, 410, 422) stop reconnection automatically.
+An exception thrown inside `onMessage` (e.g. a failed `JSON.parse`) is caught and forwarded to `onError` — it never tears down the connection or triggers an unwanted reconnect. Non-retriable HTTP statuses (204, 401, 403, 404, 405, 410, 422) stop reconnection automatically.
 
 ## Backend Requirements
 
