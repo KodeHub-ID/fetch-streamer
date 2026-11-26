@@ -38,8 +38,9 @@ function delayOption(value: number | undefined, fallback: number): number {
   return value === undefined || Number.isNaN(value) ? fallback : Math.min(value, MAX_TIMER_MS);
 }
 
-// Status codes indicating a permanent client-side failure; never retry.
-const NON_RETRIABLE_STATUS = new Set([401, 403, 404, 405, 410, 422]);
+// Statuses after which reconnecting is pointless or unwanted; never retry. 204 is
+// how an SSE server tells its client to stop reconnecting.
+const NON_RETRIABLE_STATUS = new Set([204, 401, 403, 404, 405, 410, 422]);
 
 // Numeric options resolved once at construction so no `?? DEFAULT` at call sites.
 interface ResolvedConfig {
@@ -245,7 +246,7 @@ export class FetchStreamer {
     // close() may have landed during fetch; bail before processing the response.
     if (this.closed) return;
 
-    if (!response.ok) {
+    if (!response.ok || response.status === 204) {
       throw new FetchStreamerHttpError(response.status, response.statusText);
     }
 
@@ -361,6 +362,9 @@ export class FetchStreamer {
     const push = createSSEParser(
       (parsed) => this.handleParsedEvent(parsed),
       this.cfg.maxBufferLength,
+      (id) => {
+        this.lastEventId = id;
+      },
     );
 
     // Heartbeat timeout: reset on every chunk; fire by cancelling the reader so

@@ -32,10 +32,11 @@ If `reader.read()` throws mid-stream (network drop, abort), the `ReadableStream`
 
 ## 6.3 Non-Retriable Status Codes
 
-The following HTTP status codes indicate permanent client-side failures and are never retried:
+The following HTTP status codes are never retried, because reconnecting is pointless or unwanted:
 
 | Status | Reason |
 |---|---|
+| 204 | The server is telling the client to stop (the SSE convention) |
 | 401 | Authentication required — token is missing or expired |
 | 403 | Authorization denied — token lacks permission |
 | 404 | Endpoint does not exist |

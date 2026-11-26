@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `onError` and `onClose` are swallowed, like their synchronous exceptions.
 - `Infinity` or `NaN` as `connectTimeoutMs`/`heartbeatTimeoutMs` means no timeout
   instead of firing immediately, and oversized retry delays no longer overflow timers.
+- HTTP 204 stops reconnection (reported as `FetchStreamerHttpError` with status 204)
+  instead of being retried forever.
+- `id:` in a block without `data:` now updates `Last-Event-ID`, and an empty `event:`
+  name dispatches as `message`, as native `EventSource` does.
 
 ## [0.2.0] - 2026-06-13
 

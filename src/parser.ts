@@ -41,6 +41,8 @@ export interface ParsedEvent {
 export function createSSEParser(
   onEvent: (event: ParsedEvent) => void,
   maxBufferLength: number,
+  /** Called for a terminated block that carried `id:` but dispatched no event. */
+  onIdWithoutEvent?: (id: string) => void,
 ) {
   // Pieces of the unterminated trailing line, waiting for the rest of it. Kept as
   // pieces and joined once, so a long line split over many chunks costs linear time.
@@ -102,7 +104,11 @@ export function createSSEParser(
       // block with no data field at all is dropped.
       // id is passed as-is (undefined = field absent, '' = explicit reset).
       if (dataSeen) {
-        onEvent({ type: eventType, data, id, retry });
+        // An empty `event:` name means the default type.
+        onEvent({ type: eventType || 'message', data, id, retry });
+      } else if (id !== undefined) {
+        // The spec commits the id at every blank line, event or not.
+        onIdWithoutEvent?.(id);
       }
       resetEvent();
       return;
