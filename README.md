@@ -5,7 +5,7 @@
 [![types: included](https://img.shields.io/badge/types-included-blue.svg)](#)
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](#)
 
-Zero-dependency SSE client using `fetch` + `ReadableStream`. Spec-compliant drop-in for `EventSource` with custom header support, exponential backoff, and full TypeScript types.
+Zero-dependency SSE client using `fetch` + `ReadableStream`: an `EventSource` alternative with custom header support, exponential backoff, and full TypeScript types. The stream format is parsed as `EventSource` parses it; [connection behaviour differs by design](#differences-from-eventsource).
 
 Works in browsers, Node.js 18+, Web Workers, and SSR environments.
 
@@ -67,10 +67,18 @@ The connection starts immediately on construction — there is no separate `.con
 - **Connection timeout** — abort `fetch()` if the server is slow to respond (`connectTimeoutMs`)
 - **Heartbeat timeout** — detect a silent stream and reconnect (`heartbeatTimeoutMs`)
 - **Security guards** — server `retry:` values are clamped; buffer size is bounded; HTTP error details never leak to loggers
-- **WHATWG spec compliant** — line-oriented parser handling CR/LF/CRLF and mixed-style boundaries (incl. CRLF split across chunks); correct `id:` empty-value semantics; strict `retry:` digit validation
+- **WHATWG event-stream parsing** — line-oriented parser handling CR/LF/CRLF and mixed-style boundaries (incl. CRLF split across chunks); correct empty `data:` and `id:` semantics; strict `retry:` digit validation
 - **`AbortSignal` support** — wire up React `useEffect` cleanup or any external signal
 - **POST support** — stream over POST with a static body
 - **Zero dependencies** — no polyfills, no bundler magic
+
+## Differences from `EventSource`
+
+- **A completed response is not reconnected.** When the server finishes the response, `onClose` fires. `EventSource` would reconnect. Create a new instance if you want to continue.
+- **Most failures are retried.** HTTP errors such as 500, and a wrong content type, are retried with backoff, where `EventSource` gives up. 204, 401, 403, 404, 405, 410 and 422 stop it.
+- **`retry:` is advisory.** The value is clamped between `minRetryMs` and `maxRetryMs`, holds only until the next successful connection, and is ignored in a block without `data`.
+
+The full table is in [Comparison](./docs/10-comparison.md).
 
 ## Options
 

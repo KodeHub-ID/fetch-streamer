@@ -9,7 +9,7 @@ This is intentional: embedding `document.addEventListener('visibilitychange', ..
 **Caller-side workaround (browser only):**
 
 ```ts
-const stream = new FetchStreamer(url, options);
+let stream = new FetchStreamer(url, options);
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
@@ -28,7 +28,7 @@ Like 8.1, embedding `navigator` or `window.addEventListener('online', ...)` woul
 **Caller-side workaround (browser only):**
 
 ```ts
-const stream = new FetchStreamer(url, options);
+let stream = new FetchStreamer(url, options);
 
 window.addEventListener('online', () => {
   stream.close();
