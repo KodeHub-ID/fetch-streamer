@@ -18,6 +18,8 @@ Browsers prohibit setting custom headers on `EventSource` requests. If your API 
 ```bash
 npm install @kodehub.id/fetch-streamer
 # or
+bun add @kodehub.id/fetch-streamer
+# or
 pnpm add @kodehub.id/fetch-streamer
 # or
 yarn add @kodehub.id/fetch-streamer
@@ -225,6 +227,18 @@ X-Accel-Buffering: no   ← required if behind nginx
 | [Known Limitations](./docs/08-limitations.md) | Page visibility, online/offline, static POST body |
 | [Integration Guide](./docs/09-integration.md) | Usage examples — Firebase, share tokens, React hook, nginx config |
 | [Comparison](./docs/10-comparison.md) | Feature matrix vs. native `EventSource` |
+
+## Development
+
+This repository uses Bun as its package manager and Node.js to run the tests; versions are pinned in `.tool-versions`, `.node-version`, and `packageManager`.
+
+```bash
+bun install --frozen-lockfile
+bun run test          # Vitest (not `bun test`)
+bun run typecheck
+bun run test:package  # build, then import the package under plain Node
+bun publish --access public
+```
 
 ## Changelog
 
