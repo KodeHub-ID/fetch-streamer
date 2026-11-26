@@ -81,9 +81,11 @@ export function createSSEParser(
   // name is wire syntax and does not count. Any other line is not accumulated, so
   // it is bounded on its own. Completed events never count, so many small events in
   // one network chunk are fine.
-  function assertWithinLimit(head: string, lineLength: number): void {
+  function assertWithinLimit(head: string, lineLength: number, terminated: boolean): void {
     let size = lineLength;
-    if (head === 'data' || head.startsWith('data:')) {
+    // A bare "data" is that field only once the line ends; until then it may turn
+    // out to be the start of a longer name such as "datax".
+    if (head.startsWith('data:') || (terminated && head === 'data')) {
       const prefix = head.startsWith('data: ') ? 6 : 5;
       size = Math.max(0, lineLength - prefix) + (dataSeen ? data.length + 1 : 0);
     }
@@ -114,7 +116,7 @@ export function createSSEParser(
       return;
     }
 
-    assertWithinLimit(line.slice(0, 6), line.length);
+    assertWithinLimit(line.slice(0, 6), line.length, true);
 
     if (line[0] === ':') return; // comment — spec says ignore
 
@@ -196,7 +198,7 @@ export function createSSEParser(
       pending.push(chunk.slice(start));
       pendingLength += len - start;
       // A line with no terminator yet must be bounded too.
-      assertWithinLimit(pendingHead, pendingLength);
+      assertWithinLimit(pendingHead, pendingLength, false);
     }
   };
 }
