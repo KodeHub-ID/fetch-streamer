@@ -22,8 +22,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test:package": "npm run build && node scripts/smoke-test.mjs",
-    "prepublishOnly": "npm run typecheck && npm test && npm run test:package",
+    "test:package": "bun run build && node scripts/smoke-test.mjs",
+    "prepublishOnly": "bun run typecheck && bun run test && bun run test:package",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -54,5 +54,6 @@
   "sideEffects": false,
   "engines": {
     "node": ">=18"
-  }
+  },
+  "packageManager": "bun@1.4.5"
 }
