@@ -46,6 +46,8 @@ export function createSSEParser(
   // pieces and joined once, so a long line split over many chunks costs linear time.
   let pending: string[] = [];
   let pendingLength = 0;
+  // First characters of the unterminated line, enough to recognise a `data:` field.
+  let pendingHead = '';
   // True when the previous chunk ended with a lone `\r`; a `\n` opening the next
   // chunk is the tail of that CRLF and must be swallowed, not treated as a line.
   let sawCR = false;
@@ -69,14 +71,22 @@ export function createSSEParser(
   function discardPending(): void {
     pending = [];
     pendingLength = 0;
+    pendingHead = '';
   }
 
-  // Bounds the pending event: accumulated data (plus the LF separators) and the
-  // line being added to it. Completed events never count against the limit, so
-  // many small events in one network chunk are fine.
-  function assertWithinLimit(lineLength: number): void {
-    const accumulated = dataSeen ? data.length + 1 : 0;
-    if (accumulated + lineLength <= maxBufferLength) return;
+  // Bounds memory held for the pending event. For a `data` line that is the data
+  // accumulated so far (with its LF separators) plus this line's value; the field
+  // name is wire syntax and does not count. Any other line is not accumulated, so
+  // it is bounded on its own. Completed events never count, so many small events in
+  // one network chunk are fine.
+  function assertWithinLimit(head: string, lineLength: number): void {
+    let size = lineLength;
+    if (head === 'data' || head.startsWith('data:')) {
+      const prefix = head.startsWith('data: ') ? 6 : 5;
+      size = Math.max(0, lineLength - prefix) + (dataSeen ? data.length + 1 : 0);
+    }
+    // Written as a negation so a NaN limit means "no limit".
+    if (!(size > maxBufferLength)) return;
 
     discardPending();
     sawCR = false;
@@ -98,7 +108,7 @@ export function createSSEParser(
       return;
     }
 
-    assertWithinLimit(line.length);
+    assertWithinLimit(line.slice(0, 6), line.length);
 
     if (line[0] === ':') return; // comment — spec says ignore
 
@@ -174,10 +184,13 @@ export function createSSEParser(
 
     // Keep only the unterminated remainder for the next chunk.
     if (start < len) {
+      if (pendingHead.length < 6) {
+        pendingHead = (pendingHead + chunk.slice(start, start + 6)).slice(0, 6);
+      }
       pending.push(chunk.slice(start));
       pendingLength += len - start;
       // A line with no terminator yet must be bounded too.
-      assertWithinLimit(pendingLength);
+      assertWithinLimit(pendingHead, pendingLength);
     }
   };
 }

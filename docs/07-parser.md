@@ -49,7 +49,7 @@ A `data:` field with an empty value still counts. The spec appends the value **p
 
 ## 7.6 Buffer Bound Discards the In-Flight Event
 
-`maxBufferLength` bounds the **pending event**: the accumulated `data` plus the line currently being read, whether or not that line has been terminated yet. This covers both a server streaming a line with no terminator and one streaming `data:` lines with no blank line. Completed events do not count, so many small events arriving in one network chunk are fine. When the limit is exceeded, the buffer **and** the partially-accumulated event state are discarded and `FetchStreamerBufferError` is thrown. Resetting the event state prevents a half-read event from leaking into the next connection's first dispatch. See [Security §5.2](./05-security.md#52-sse-buffer-is-bounded).
+`maxBufferLength` bounds the **pending event**: the accumulated `data` plus the value of the `data` line currently being read, whether or not that line has been terminated yet. Field names are not counted. A comment or other non-`data` line is not accumulated, so it is held to the limit on its own. This covers both a server streaming a line with no terminator and one streaming `data:` lines with no blank line. Completed events do not count, so many small events arriving in one network chunk are fine. When the limit is exceeded, the buffer **and** the partially-accumulated event state are discarded and `FetchStreamerBufferError` is thrown. Resetting the event state prevents a half-read event from leaking into the next connection's first dispatch. See [Security §5.2](./05-security.md#52-sse-buffer-is-bounded).
 
 ---
 

@@ -51,8 +51,8 @@ export interface FetchStreamerOptions {
    */
   minRetryMs?: number;
   /**
-   * Maximum size of one pending SSE event (accumulated data plus the line being
-   * read) in UTF-16 code units (JS string `.length`).
+   * Maximum size of one pending SSE event's data in UTF-16 code units (JS string
+   * `.length`). Field names do not count; any other line is bounded on its own.
    * For ASCII-only streams this equals bytes; for multi-byte Unicode (CJK,
    * emoji) the effective byte limit is higher — see docs for details.
    * If exceeded (e.g. server sends an event with no blank-line terminator),

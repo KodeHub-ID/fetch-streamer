@@ -7,6 +7,16 @@ import {
 } from './errors.js';
 import type { FetchStreamerOptions } from './types.js';
 
+/**
+ * Callbacks are typed as returning void, which still lets a caller pass an async
+ * function. Routes its rejection to `onRejected` instead of leaving it unhandled.
+ */
+function catchRejection(result: unknown, onRejected: (err: unknown) => void): void {
+  if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
+    (result as PromiseLike<unknown>).then(undefined, onRejected);
+  }
+}
+
 // Keys match FetchStreamerOptions names intentionally — diff is immediate.
 const DEFAULTS = {
   initialRetryMs: 3_000,
@@ -14,6 +24,19 @@ const DEFAULTS = {
   minRetryMs: 500,
   maxBufferLength: 1_048_576,
 } as const;
+
+// Longest delay a timer accepts; anything larger (or Infinity) fires almost at once.
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** A timeout option: absent, NaN and Infinity all mean "no timeout". */
+function timeoutOption(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) ? Math.min(value, MAX_TIMER_MS) : undefined;
+}
+
+/** A retry delay option, kept within what a timer can wait. */
+function delayOption(value: number | undefined, fallback: number): number {
+  return value === undefined || Number.isNaN(value) ? fallback : Math.min(value, MAX_TIMER_MS);
+}
 
 // Status codes indicating a permanent client-side failure; never retry.
 const NON_RETRIABLE_STATUS = new Set([401, 403, 404, 405, 410, 422]);
@@ -57,12 +80,12 @@ export class FetchStreamer {
     this.cfg = {
       reconnectOnError: options.reconnectOnError ?? true,
       maxRetries: options.maxRetries,
-      initialRetryMs: options.initialRetryMs ?? DEFAULTS.initialRetryMs,
-      maxRetryMs: options.maxRetryMs ?? DEFAULTS.maxRetryMs,
-      minRetryMs: options.minRetryMs ?? DEFAULTS.minRetryMs,
+      initialRetryMs: delayOption(options.initialRetryMs, DEFAULTS.initialRetryMs),
+      maxRetryMs: delayOption(options.maxRetryMs, DEFAULTS.maxRetryMs),
+      minRetryMs: delayOption(options.minRetryMs, DEFAULTS.minRetryMs),
       maxBufferLength: options.maxBufferLength ?? DEFAULTS.maxBufferLength,
-      connectTimeoutMs: options.connectTimeoutMs,
-      heartbeatTimeoutMs: options.heartbeatTimeoutMs,
+      connectTimeoutMs: timeoutOption(options.connectTimeoutMs),
+      heartbeatTimeoutMs: timeoutOption(options.heartbeatTimeoutMs),
     };
     this.retryMs = this.cfg.initialRetryMs;
 
@@ -89,7 +112,7 @@ export class FetchStreamer {
     // A throwing onClose must not leave the instance half-closed or surface as an
     // unhandled rejection from the abort/signal paths that call close().
     try {
-      this.options.onClose?.();
+      catchRejection(this.options.onClose?.(), () => {});
     } catch {
       /* swallow — there is no further channel to report a teardown-handler bug */
     }
@@ -101,7 +124,7 @@ export class FetchStreamer {
    */
   private emitError(err: unknown): void {
     try {
-      this.options.onError?.(err);
+      catchRejection(this.options.onError?.(err), () => {});
     } catch {
       /* swallow — a buggy onError must not break reconnection */
     }
@@ -119,6 +142,8 @@ export class FetchStreamer {
         if (this.closed) return;
 
         this.emitError(err);
+        // onError may have called close(); do not start a backoff nobody will await.
+        if (this.closed) return;
 
         if (this.shouldGiveUp(err)) {
           this.close();
@@ -225,7 +250,8 @@ export class FetchStreamer {
     }
 
     const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.includes('text/event-stream')) {
+    // Media types are case-insensitive.
+    if (!contentType.toLowerCase().includes('text/event-stream')) {
       throw new FetchStreamerContentTypeError(response.headers.get('content-type'));
     }
 
@@ -317,11 +343,12 @@ export class FetchStreamer {
     // the handler throws. A buggy onMessage is reported via onError but must not
     // tear down a healthy connection, so it is isolated from the read loop.
     try {
-      this.options.onMessage?.({
+      const result: unknown = this.options.onMessage?.({
         type: parsed.type,
         data: parsed.data,
         lastEventId: this.lastEventId,
       });
+      catchRejection(result, (err) => this.emitError(err));
     } catch (err) {
       this.emitError(err);
     }
@@ -407,7 +434,7 @@ export class FetchStreamer {
         // on the long-lived abort signal until close() is finally called.
         signal.removeEventListener('abort', onAbort);
         resolve();
-      }, Math.max(0, ms));
+      }, Math.min(Math.max(0, ms), MAX_TIMER_MS));
       signal.addEventListener('abort', onAbort, { once: true });
     });
   }
