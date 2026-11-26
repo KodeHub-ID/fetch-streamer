@@ -54,6 +54,25 @@ stream.close();
 stream = connect(buildBody());
 ```
 
+## 8.4 A Silently Dead Connection Is Not Detected by Default
+
+If the network path disappears without closing the connection (cable pulled, NAT or proxy state dropped), no bytes and no error reach the client, and the read simply waits. Only a timeout can detect this, and `heartbeatTimeoutMs` has no default: a server that legitimately stays quiet would otherwise be disconnected over and over.
+
+**What to do:** send a comment or event at a fixed interval and set `heartbeatTimeoutMs` to about twice that interval.
+
+```ts
+// Server writes ": ping" every 30 s
+new FetchStreamer(url, { heartbeatTimeoutMs: 60_000 });
+```
+
+## 8.5 A Close-Delimited Response Cannot Be Told Apart From a Clean End
+
+When a response has neither `Content-Length` nor chunked encoding (HTTP/1.0 style, `Connection: close`), the end of the connection *is* the end of the response. A stream cut off part-way is then indistinguishable from one the server finished, so `onClose` fires and nothing is retried. What a TCP reset does in this case varies between runtimes: Chromium-based browsers report an error, Node.js 22 reports a clean end.
+
+With chunked encoding, a cut before the terminating chunk is reported as an error and retried.
+
+**What to do:** serve streams with HTTP/1.1 chunked encoding or HTTP/2, and check that reverse proxies preserve it. Where the client must know the server ended the stream on purpose, send a final event before closing.
+
 ---
 
 [← Parser Compliance](./07-parser.md) | [Next: Integration Guide →](./09-integration.md)
