@@ -1,4 +1,4 @@
-import { FetchStreamerBufferError } from './errors';
+import { FetchStreamerBufferError } from './errors.js';
 
 export interface ParsedEvent {
   type: string;
@@ -64,17 +64,34 @@ export function createSSEParser(
     retry = undefined;
   }
 
+  // Bounds the pending event: accumulated data (plus the LF separators) and the
+  // line being added to it. Completed events never count against the limit, so
+  // many small events in one network chunk are fine.
+  function assertWithinLimit(lineLength: number): void {
+    const accumulated = dataSeen ? data.length + 1 : 0;
+    if (accumulated + lineLength <= maxBufferLength) return;
+
+    buffer = '';
+    sawCR = false;
+    resetEvent();
+    throw new FetchStreamerBufferError(maxBufferLength);
+  }
+
   function processLine(line: string): void {
     // Blank line: dispatch the accumulated event, then reset for the next one.
     if (line === '') {
-      // Spec: dispatch only when the data buffer is non-empty.
+      // Spec: the emptiness check runs while each data line still carries its LF,
+      // so a single `data:` with no value IS dispatched (with data ''). Only a
+      // block with no data field at all is dropped.
       // id is passed as-is (undefined = field absent, '' = explicit reset).
-      if (dataSeen && data !== '') {
+      if (dataSeen) {
         onEvent({ type: eventType, data, id, retry });
       }
       resetEvent();
       return;
     }
+
+    assertWithinLimit(line.length);
 
     if (line[0] === ':') return; // comment — spec says ignore
 
@@ -127,12 +144,6 @@ export function createSSEParser(
 
     buffer += chunk;
 
-    if (buffer.length > maxBufferLength) {
-      buffer = '';
-      resetEvent();
-      throw new FetchStreamerBufferError(maxBufferLength);
-    }
-
     const len = buffer.length;
     let start = 0;
     let i = 0;
@@ -164,5 +175,7 @@ export function createSSEParser(
 
     // Keep only the unterminated remainder for the next chunk.
     buffer = start === 0 ? buffer : buffer.slice(start);
+    // A line with no terminator yet must be bounded too.
+    if (buffer !== '') assertWithinLimit(buffer.length);
   };
 }

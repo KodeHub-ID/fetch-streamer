@@ -163,7 +163,7 @@ The `finally` block removes this listener unconditionally — it will already be
 
 ## 6.13 `maxBufferLength`: Measuring in UTF-16 Code Units
 
-The buffer limit is checked against `buffer.length` — UTF-16 code units, the native unit of JS strings — rather than raw UTF-8 bytes. This is a deliberate choice.
+The limit is checked against JS string `.length` of the pending event — UTF-16 code units, the native unit of JS strings — rather than raw UTF-8 bytes. This is a deliberate choice.
 
 The accurate alternative would track a running byte counter using `new TextEncoder().encode(chunk).byteLength` on each incoming chunk (encoding only the new chunk, not the whole buffer). This preserves O(n) complexity but `TextEncoder.encode()` always allocates a new `Uint8Array` — for every chunk, regardless of size. For an OOM guard that fires at most once per connection attempt, that per-chunk heap allocation is unnecessary overhead. Code-unit measurement is O(1) with zero allocation.
 

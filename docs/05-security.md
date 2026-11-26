@@ -15,7 +15,7 @@ Default range: 500 ms – 30 s. Adjust `minRetryMs` / `maxRetryMs` in options to
 
 ## 5.2 SSE buffer is bounded
 
-The parser accumulates incoming chunks until it sees a blank-line event boundary. To prevent a server that never sends boundaries from growing this buffer to OOM, the library enforces `maxBufferLength` (default: 1,048,576 code units). When exceeded, the buffer is discarded and `FetchStreamerBufferError` is emitted via `onError`, triggering the normal reconnect path.
+The parser accumulates an event until it sees a blank-line boundary. To prevent a server that never sends line terminators or boundaries from growing memory to OOM, the library enforces `maxBufferLength` (default: 1,048,576 code units) on the pending event: accumulated `data` plus the line being read. When exceeded, the buffer and pending event are discarded and `FetchStreamerBufferError` is emitted via `onError`, triggering the normal reconnect path.
 
 ## 5.3 HTTP errors expose only status code, not response headers
 

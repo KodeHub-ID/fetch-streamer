@@ -1,13 +1,13 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { FetchStreamer } from '../FetchStreamer';
+import { FetchStreamer } from '../FetchStreamer.js';
 import {
   FetchStreamerHttpError,
   FetchStreamerContentTypeError,
   FetchStreamerConnectTimeoutError,
   FetchStreamerHeartbeatError,
-} from '../errors';
-import type { HeaderProvider } from '../types';
-import { MockSSEStream, makeSSEResponse, makeErrorResponse } from './helpers/MockSSEStream';
+} from '../errors.js';
+import type { HeaderProvider } from '../types.js';
+import { MockSSEStream, makeSSEResponse, makeErrorResponse } from './helpers/MockSSEStream.js';
 
 // Macrotask boundary — drains the ReadableStream read loop under REAL timers.
 const tick = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
