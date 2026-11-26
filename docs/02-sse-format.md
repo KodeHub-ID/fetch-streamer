@@ -36,7 +36,7 @@ Rules (from spec):
 
 ## Dispatch Rules
 
-An event is dispatched when a blank line is encountered **and** the block contained at least one `data:` field — even an empty one, which dispatches with `data: ""`. (In the spec each `data:` line appends its value plus a line feed, so the buffer is non-empty at the time of the check.) An event block containing only `event:` or `id:` fields with no `data:` field is silently dropped.
+An event is dispatched when a blank line is encountered **and** the block contained at least one `data:` field — even an empty one, which dispatches with `data: ""`. (In the spec each `data:` line appends its value plus a line feed, so the buffer is non-empty at the time of the check.) An event block with no `data:` field dispatches nothing, although an `id:` in it still updates `lastEventId` at the blank line. An empty `event:` name dispatches as `"message"`.
 
 ## Example
 

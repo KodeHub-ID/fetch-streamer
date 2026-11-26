@@ -213,6 +213,15 @@ Connection: keep-alive
 X-Accel-Buffering: no   ← required if behind nginx
 ```
 
+### Detecting a lost connection
+
+A response that **completes** is treated as intentional: `onClose` fires and there is no reconnect. Anything else that breaks the stream is an error and is retried. Two setups blur that line:
+
+- **Frame the response so truncation is visible.** Use HTTP/1.1 chunked encoding or HTTP/2, including on any reverse proxy in front of your server. A response delimited only by the connection closing (no `Content-Length`, not chunked) looks complete however it was cut off.
+- **Send heartbeats and set `heartbeatTimeoutMs`.** When a network path dies silently, nothing tells the client; without a timeout the stream waits indefinitely. Have the server write a comment (`: ping`) or event at a fixed interval and set `heartbeatTimeoutMs` to about twice that. It is off by default.
+
+`onClose` therefore does not prove the server meant to end the conversation. If your application must know, have the server send a final event before closing and call `close()` when it arrives. See [Known Limitations §8.4–8.5](./docs/08-limitations.md#84-a-silently-dead-connection-is-not-detected-by-default).
+
 ## Documentation
 
 | Document | Contents |
