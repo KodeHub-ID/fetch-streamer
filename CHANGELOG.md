@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Latin-1 previously made every reconnect fail; an id containing control characters is
   now omitted.
 - A large event split across many network chunks is parsed in linear time.
+- Calling `close()` from `onError` no longer leaves a backoff timer running.
+- `Content-Type` is matched case-insensitively.
+- A rejecting async `onMessage` is reported to `onError`; rejections from async
+  `onError` and `onClose` are swallowed, like their synchronous exceptions.
+- `Infinity` or `NaN` as `connectTimeoutMs`/`heartbeatTimeoutMs` means no timeout
+  instead of firing immediately, and oversized retry delays no longer overflow timers.
 
 ## [0.2.0] - 2026-06-13
 
