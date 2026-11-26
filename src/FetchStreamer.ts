@@ -28,14 +28,24 @@ const DEFAULTS = {
 // Longest delay a timer accepts; anything larger (or Infinity) fires almost at once.
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** A timeout option: absent, NaN and Infinity all mean "no timeout". */
-function timeoutOption(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) ? Math.min(value, MAX_TIMER_MS) : undefined;
+/**
+ * Reads a millisecond option. Untyped callers (plain JavaScript, JSON or env config)
+ * can pass null or a numeric string: null and '' mean "not set", strings are converted.
+ */
+function msOption(value: unknown): number {
+  return value === undefined || value === null || value === '' ? Number.NaN : Number(value);
+}
+
+/** A timeout option: unset, NaN and Infinity all mean "no timeout". */
+function timeoutOption(value: unknown): number | undefined {
+  const ms = msOption(value);
+  return Number.isFinite(ms) ? Math.min(ms, MAX_TIMER_MS) : undefined;
 }
 
 /** A retry delay option, kept within what a timer can wait. */
-function delayOption(value: number | undefined, fallback: number): number {
-  return value === undefined || Number.isNaN(value) ? fallback : Math.min(value, MAX_TIMER_MS);
+function delayOption(value: unknown, fallback: number): number {
+  const ms = msOption(value);
+  return Number.isNaN(ms) ? fallback : Math.min(ms, MAX_TIMER_MS);
 }
 
 // Statuses after which reconnecting is pointless or unwanted; never retry. 204 is
@@ -68,6 +78,8 @@ export class FetchStreamer {
   private readonly cfg: ResolvedConfig;
   private readonly abortController = new AbortController();
   private closed = false;
+  // True when the stream closed itself rather than because the caller asked.
+  private endedByStream = false;
   private retryCount = 0;
   private lastEventId = '';
   private retryMs: number;
@@ -136,6 +148,8 @@ export class FetchStreamer {
       try {
         await this.openConnection();
         // Server closed the stream cleanly (done === true from reader). Do not reconnect.
+        // After the caller's own close() the flag stays false.
+        this.endedByStream = !this.closed;
         this.close();
         return;
       } catch (err) {
@@ -147,6 +161,7 @@ export class FetchStreamer {
         if (this.closed) return;
 
         if (this.shouldGiveUp(err)) {
+          this.endedByStream = true;
           this.close();
           return;
         }
@@ -349,7 +364,11 @@ export class FetchStreamer {
         data: parsed.data,
         lastEventId: this.lastEventId,
       });
-      catchRejection(result, (err) => this.emitError(err));
+      // A caller that closed the stream gets no further callbacks. If the stream ended
+      // by itself, the failure is still reported (after onClose) rather than lost.
+      catchRejection(result, (err) => {
+        if (!this.closed || this.endedByStream) this.emitError(err);
+      });
     } catch (err) {
       this.emitError(err);
     }

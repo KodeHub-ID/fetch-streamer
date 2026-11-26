@@ -28,7 +28,7 @@ const stream = new FetchStreamer('/api/events', {
 | `initialRetryMs` | `number` | `3000` | Initial backoff delay in ms. |
 | `maxRetryMs` | `number` | `30000` | Backoff ceiling in ms. |
 | `minRetryMs` | `number` | `500` | Lower bound for reconnect delay — floors server-sent `retry:` values and the jittered backoff. |
-| `maxBufferLength` | `number` | `1048576` | Size limit for one pending event, in UTF-16 code units (`buffer.length`). Equals bytes for ASCII; for CJK/emoji the actual byte limit is higher — see [Implementation Decisions §6.13](./06-implementation.md#613-maxbufferlength-measuring-in-utf-16-code-units). |
+| `maxBufferLength` | `number` | `1048576` | Size limit for one pending event, in UTF-16 code units (JS string `.length`). Equals bytes for ASCII; for CJK/emoji the actual byte limit is higher — see [Implementation Decisions §6.13](./06-implementation.md#613-maxbufferlength-measuring-in-utf-16-code-units). |
 | `connectTimeoutMs` | `number` | — | Max ms to wait for `fetch()` to resolve. Throws `FetchStreamerConnectTimeoutError` then retries with backoff. No timeout by default. |
 | `heartbeatTimeoutMs` | `number` | — | Max ms of silence between chunks. Throws `FetchStreamerHeartbeatError` then retries with backoff. No timeout by default. |
 | `onOpen` | `(res: Response) => void \| Promise<void>` | — | Called after successful connection. |

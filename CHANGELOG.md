@@ -32,7 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calling `close()` from `onError` no longer leaves a backoff timer running.
 - `Content-Type` is matched case-insensitively.
 - A rejecting async `onMessage` is reported to `onError`; rejections from async
-  `onError` and `onClose` are swallowed, like their synchronous exceptions.
+  `onError` and `onClose` are swallowed, like their synchronous exceptions. After the
+  caller's `close()` it is not reported. If the stream ended by itself it is, which
+  means `onError` can follow `onClose`.
 - `Infinity` or `NaN` as `connectTimeoutMs`/`heartbeatTimeoutMs` means no timeout
   instead of firing immediately, and oversized retry delays no longer overflow timers.
 - HTTP 204 stops reconnection (reported as `FetchStreamerHttpError` with status 204)
