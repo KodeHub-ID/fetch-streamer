@@ -42,8 +42,10 @@ export function createSSEParser(
   onEvent: (event: ParsedEvent) => void,
   maxBufferLength: number,
 ) {
-  // Unterminated trailing text waiting for the rest of its line.
-  let buffer = '';
+  // Pieces of the unterminated trailing line, waiting for the rest of it. Kept as
+  // pieces and joined once, so a long line split over many chunks costs linear time.
+  let pending: string[] = [];
+  let pendingLength = 0;
   // True when the previous chunk ended with a lone `\r`; a `\n` opening the next
   // chunk is the tail of that CRLF and must be swallowed, not treated as a line.
   let sawCR = false;
@@ -64,6 +66,11 @@ export function createSSEParser(
     retry = undefined;
   }
 
+  function discardPending(): void {
+    pending = [];
+    pendingLength = 0;
+  }
+
   // Bounds the pending event: accumulated data (plus the LF separators) and the
   // line being added to it. Completed events never count against the limit, so
   // many small events in one network chunk are fine.
@@ -71,7 +78,7 @@ export function createSSEParser(
     const accumulated = dataSeen ? data.length + 1 : 0;
     if (accumulated + lineLength <= maxBufferLength) return;
 
-    buffer = '';
+    discardPending();
     sawCR = false;
     resetEvent();
     throw new FetchStreamerBufferError(maxBufferLength);
@@ -142,40 +149,35 @@ export function createSSEParser(
       sawCR = false;
     }
 
-    buffer += chunk;
-
-    const len = buffer.length;
+    const len = chunk.length;
     let start = 0;
-    let i = 0;
 
-    while (i < len) {
-      const ch = buffer[i];
+    for (let i = 0; i < len; i++) {
+      const ch = chunk[i];
+      if (ch !== '\n' && ch !== '\r') continue;
 
-      if (ch === '\n') {
-        processLine(buffer.slice(start, i));
-        i += 1;
-        start = i;
-      } else if (ch === '\r') {
-        if (i === len - 1) {
-          // Trailing CR: the line is complete, but a `\n` may still arrive next
-          // chunk to form a CRLF. Emit the line now and defer the CRLF decision.
-          processLine(buffer.slice(start, i));
-          sawCR = true;
-          i += 1;
-          start = i;
-        } else {
-          processLine(buffer.slice(start, i));
-          i += buffer[i + 1] === '\n' ? 2 : 1;
-          start = i;
-        }
-      } else {
-        i += 1;
+      let line = chunk.slice(start, i);
+      if (pendingLength > 0) {
+        line = pending.join('') + line;
+        discardPending();
       }
+      processLine(line);
+
+      if (ch === '\r') {
+        // Trailing CR: the line is complete, but a `\n` may still arrive next chunk
+        // to form a CRLF. Emit the line now and defer the CRLF decision.
+        if (i === len - 1) sawCR = true;
+        else if (chunk[i + 1] === '\n') i++;
+      }
+      start = i + 1;
     }
 
     // Keep only the unterminated remainder for the next chunk.
-    buffer = start === 0 ? buffer : buffer.slice(start);
-    // A line with no terminator yet must be bounded too.
-    if (buffer !== '') assertWithinLimit(buffer.length);
+    if (start < len) {
+      pending.push(chunk.slice(start));
+      pendingLength += len - start;
+      // A line with no terminator yet must be bounded too.
+      assertWithinLimit(pendingLength);
+    }
   };
 }

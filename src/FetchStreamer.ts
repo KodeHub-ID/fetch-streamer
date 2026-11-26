@@ -30,6 +30,16 @@ interface ResolvedConfig {
   heartbeatTimeoutMs: number | undefined;
 }
 
+/**
+ * Header values may only carry bytes, so send the UTF-8 bytes of the value (what
+ * native EventSource puts on the wire). Returns '' for a value holding control
+ * characters, which fetch would reject on every attempt and so end reconnection.
+ */
+function encodeHeaderValue(value: string): string {
+  if (/[\u0000-\u0008\u000A-\u001F\u007F]/.test(value)) return '';
+  return Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join('');
+}
+
 export class FetchStreamer {
   private readonly cfg: ResolvedConfig;
   private readonly abortController = new AbortController();
@@ -138,41 +148,49 @@ export class FetchStreamer {
   }
 
   /**
-   * Returns a signal that fires on close() OR after connectTimeoutMs, whichever
-   * comes first. The caller must invoke the returned cancel() to clear the timer
-   * whether or not fetch() succeeds, preventing a timer leak.
+   * Creates the AbortController for one connection attempt. close() aborts it for as
+   * long as the attempt lives — headers, fetch and body alike — and connectTimeoutMs
+   * aborts it until `connected()` is called. `dispose()` must run when the attempt
+   * ends, however it ends: it aborts the request, so no path can leave a response
+   * body (and its connection) open behind a retry.
    */
-  private buildConnectSignal(): { signal: AbortSignal; cancel: () => void } {
-    if (this.cfg.connectTimeoutMs === undefined) {
-      return { signal: this.abortController.signal, cancel: () => undefined };
-    }
+  private buildAttempt(): { signal: AbortSignal; connected: () => void; dispose: () => void } {
+    const controller = new AbortController();
+
+    // A listener rather than AbortSignal.any() for Node.js < 20 compatibility.
+    const onClose = () => controller.abort(this.abortController.signal.reason);
+    this.abortController.signal.addEventListener('abort', onClose, { once: true });
 
     const timeoutMs = this.cfg.connectTimeoutMs;
-    const timeoutController = new AbortController();
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            controller.abort(new FetchStreamerConnectTimeoutError(timeoutMs));
+          }, timeoutMs);
 
-    // Propagate close() into timeoutController so fetch() only needs one signal.
-    // Uses a listener instead of AbortSignal.any() for Node.js < 20 compatibility.
-    const onAbort = () => timeoutController.abort(this.abortController.signal.reason);
-    this.abortController.signal.addEventListener('abort', onAbort, { once: true });
-
-    const id = setTimeout(() => {
-      timeoutController.abort(new FetchStreamerConnectTimeoutError(timeoutMs));
-    }, timeoutMs);
-
-    const cancel = () => {
-      clearTimeout(id);
-      this.abortController.signal.removeEventListener('abort', onAbort);
+    const connected = () => clearTimeout(timer);
+    const dispose = () => {
+      connected();
+      this.abortController.signal.removeEventListener('abort', onClose);
+      controller.abort();
     };
 
-    return { signal: timeoutController.signal, cancel };
+    return { signal: controller.signal, connected, dispose };
   }
 
   private async openConnection(): Promise<void> {
-    // Arm the connect signal first so it covers BOTH header resolution and fetch:
-    // close() or connectTimeoutMs can then interrupt a header provider that hangs,
-    // and cancel() in the catch releases the timer on every failure path.
-    const { signal, cancel } = this.buildConnectSignal();
+    const attempt = this.buildAttempt();
+    try {
+      await this.runAttempt(attempt.signal, attempt.connected);
+    } finally {
+      attempt.dispose();
+    }
+  }
 
+  private async runAttempt(signal: AbortSignal, connected: () => void): Promise<void> {
+    // The signal covers header resolution too, so close() or connectTimeoutMs can
+    // interrupt a header provider that hangs.
     let response: Response;
     try {
       // Re-resolved every attempt (incl. reconnects), so a reconnect always carries
@@ -187,7 +205,6 @@ export class FetchStreamer {
         signal,
       });
     } catch (err) {
-      cancel();
       // Surface the connect-timeout error we set as the abort reason (during either
       // header resolution or fetch) rather than a generic AbortError. A close()-driven
       // abort falls through to `throw err` and run() exits via its `this.closed` guard.
@@ -197,7 +214,8 @@ export class FetchStreamer {
       }
       throw err;
     }
-    cancel();
+    // Headers are in: the connect timeout no longer applies.
+    connected();
 
     // close() may have landed during fetch; bail before processing the response.
     if (this.closed) return;
@@ -273,7 +291,8 @@ export class FetchStreamer {
       Accept: 'text/event-stream',
       'Cache-Control': 'no-cache',
     };
-    if (this.lastEventId) headers['Last-Event-ID'] = this.lastEventId;
+    const lastEventId = encodeHeaderValue(this.lastEventId);
+    if (lastEventId) headers['Last-Event-ID'] = lastEventId;
     return headers;
   }
 
@@ -323,21 +342,24 @@ export class FetchStreamer {
     let heartbeatExpired = false;
     let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // cancel() rejects when the stream has already errored — which is the case when
+    // close() aborted the request. There is nothing to do about it, and unhandled it
+    // would terminate a Node.js process.
+    const cancelReader = () => reader.cancel().catch(() => {});
+
     const resetHeartbeat = () => {
       clearTimeout(heartbeatTimer);
       if (heartbeatTimeoutMs !== undefined) {
         heartbeatTimer = setTimeout(() => {
           heartbeatExpired = true;
-          void reader.cancel();
+          void cancelReader();
         }, heartbeatTimeoutMs);
       }
     };
 
-    // Guarantee close() immediately cancels the reader regardless of which fetch
-    // signal was used. When connectTimeoutMs is set, buildConnectSignal() disconnects
-    // its internal controller after the connection phase, making this.abortController
-    // the only reliable path for close() to reach the reader.
-    const onAbort = () => void reader.cancel();
+    // Stop reading as soon as close() is called, even if the platform's fetch does
+    // not error the body when its signal aborts.
+    const onAbort = () => void cancelReader();
     this.abortController.signal.addEventListener('abort', onAbort, { once: true });
 
     resetHeartbeat();
@@ -358,7 +380,7 @@ export class FetchStreamer {
       this.abortController.signal.removeEventListener('abort', onAbort);
       clearTimeout(heartbeatTimer);
       // Cancel unconditionally: covers clean server-close, thrown errors, close() mid-read.
-      await reader.cancel();
+      await cancelReader();
     }
 
     // Throw AFTER finally so reader.cancel() always runs first.

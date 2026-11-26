@@ -40,7 +40,7 @@ new FetchStreamer(url, options)
         │
         ├─ [loop] while (!this.closed)
         │     └─ await this.openConnection()
-        │           ├─ this.buildConnectSignal()    ← merge close() signal + connectTimeoutMs timer
+        │           ├─ this.buildAttempt()          ← per-attempt abort: close() + connectTimeoutMs; disposed in finally
         │           ├─ await this.resolveHeaders(signal)  ← static headers, or a provider raced
         │           │         against the signal (close()/timeout interrupt a hanging provider)
         │           ├─ fetch(url, { signal })       ← aborts on close() or connect timeout
